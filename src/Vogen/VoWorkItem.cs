@@ -16,7 +16,7 @@ public class VoWorkItem
     private readonly string _underlyingTypeFullName = null!;
     
     public MethodDeclarationSyntax? NormalizeInputMethod { get; init; }
-    
+    public MethodDeclarationSyntax? NormalizeAndValidateMethod { get; init; }
     public MethodDeclarationSyntax? ValidateMethod { get; init; }
 
     public INamedTypeSymbol UnderlyingType

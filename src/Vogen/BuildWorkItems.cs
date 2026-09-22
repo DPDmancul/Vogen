@@ -118,8 +118,9 @@ internal static class BuildWorkItems
 
         ThrowIfAnyToStringOverrideOnRecordIsUnsealed(target, context, userProvidedOverloads.ToStringOverloads);
 
-        MethodDeclarationSyntax? validateMethod = null;
         MethodDeclarationSyntax? normalizeInputMethod = null;
+        MethodDeclarationSyntax? normalizeAndValidateMethod = null;
+        MethodDeclarationSyntax? validateMethod = null;
 
         // add any validator or normalize methods it finds
         foreach (var memberDeclarationSyntax in voTypeSyntax.Members)
@@ -128,14 +129,19 @@ internal static class BuildWorkItems
             {
                 string? methodName = mds.Identifier.Value?.ToString();
 
-                if (TryHandleValidateMethod(methodName, mds, context, compilation))
-                {
-                    validateMethod = mds;
-                }
-
                 if (TryHandleNormalizeMethod(methodName, mds, context, config, target))
                 {
                     normalizeInputMethod = mds;
+                }
+
+                if (TryHandleNormalizeAndValidateMethod(methodName, mds, context, config, target))
+                {
+                    normalizeAndValidateMethod = mds;
+                }
+
+                if (TryHandleValidateMethod(methodName, mds, context, compilation))
+                {
+                    validateMethod = mds;
                 }
             }
         }
@@ -173,8 +179,9 @@ internal static class BuildWorkItems
             UserProvidedPartials = userProvidedPartials,
             
             UnderlyingType = underlyingType,
-            ValidateMethod = validateMethod,
             NormalizeInputMethod = normalizeInputMethod,
+            NormalizeAndValidateMethod = normalizeAndValidateMethod,
+            ValidateMethod = validateMethod,
             FullAliasedNamespace = voSymbolInformation.FullAliasedNamespace(),
             FullUnaliasedNamespace = voSymbolInformation.FullUnalisaedNamespace(),
             IsSealed = voSymbolInformation.IsSealed,
@@ -364,6 +371,53 @@ internal static class BuildWorkItems
         if (!AreSameType(mds.ReturnType, config.UnderlyingType, target.SemanticModel))
         {
             context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeInputMethodMustReturnUnderlyingType(mds));
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryHandleNormalizeAndValidateMethod(
+        string? methodName,
+        MethodDeclarationSyntax mds,
+        SourceProductionContext context,
+        VogenConfiguration config,
+        VoTarget target)
+    {
+        if (StringComparer.OrdinalIgnoreCase.Compare(methodName, "normalizeandvalidate") != 0)
+        {
+            return false;
+        }
+
+        if (!IsMethodStatic(mds))
+        {
+            context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeAndValidateMethodMustBeStatic(mds));
+            return false;
+        }
+
+        if (mds.ParameterList.Parameters.Count != 1)
+        {
+            context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeAndValidateMethodTakeOneParameterOfUnderlyingType(mds));
+            return false;
+        }
+
+        if (!AreSameType(mds.ParameterList.Parameters[0].Type, config.UnderlyingType, target.SemanticModel))
+        {
+            context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeAndValidateMethodTakeOneParameterOfUnderlyingType(mds));
+            return false;
+        }
+
+        var returnType = target.SemanticModel.GetSymbolInfo(mds.ReturnType).Symbol as INamedTypeSymbol;
+
+        if (!returnType.IsGenericType || returnType.ConstructUnboundGenericType().EscapedFullName() !=  "Vogen.Validation<>")
+        {
+            context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeAndValidateMethodMustReturnValidationType(mds));
+            return false;
+        }
+
+        if (!SymbolEqualityComparer.Default.Equals(returnType.TypeParameters.Single(), config.UnderlyingType))
+        {
+            context.ReportDiagnostic(DiagnosticsCatalogue.NormalizeAndValidateMethodMustReturnValidationOfUnderlyingType(mds));
             return false;
         }
 
